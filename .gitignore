@@ -1,2 +1,3 @@
 .*.sw*
 mailer.egg-info
+run_mailer.sh
