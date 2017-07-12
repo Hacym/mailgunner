@@ -4,8 +4,11 @@ import ConfigParser
 import json
 
 import bottle
-from bottle import request, response
+from bottle import request, response, hook, route, abort
 from bottle import post, get, put, delete
+
+from urlparse import urlparse
+
 
 import requests
 
@@ -33,20 +36,47 @@ if 'email' not in config.options('receiver'):
 
 app = bottle.default_app()
 
+_allow_origin = '*'
+_allow_methods = 'PUT, GET, POST, DELETE, OPTIONS'
+_allow_headers = 'Authorization, Origin, Accept, Content-Type, X-Requested-With'
+
+@hook('after_request')
+def enable_cors():
+    '''Add headers to enable CORS'''
+
+    response.headers['Access-Control-Allow-Origin'] = _allow_origin
+    response.headers['Access-Control-Allow-Methods'] = _allow_methods
+    response.headers['Access-Control-Allow-Headers'] = _allow_headers
+
+@route('/', method = 'OPTIONS')
+@route('/<path:path>', method = 'OPTIONS')
+def options_handler(path = None):
+    return
+
+
 @post('/')
 def mailer():
+    trusted_domains = config.get('domains', 'trusted').split(',')
+
+    referer = urlparse(request.headers.get('Referer'))
+
+    if referer.netloc not in trusted_domains:
+        response.status = 401
+        return json.dumps({'error': 'Referrer domain not trusted', "referer": referer})
+
     response.headers['Content-Type'] = 'application/json'
 
     if not request.forms.get('name'):
-        return json.dumps("{'error': 'Name is required.'}")
+        response.status = 400
+        return json.dumps({'error': 'Name is required.'})
 
     if not request.forms.get('email'):
-        return json.dumps("{'error': 'Email is required.'}")
+        response.status = 400
+        return json.dumps({'error': 'Email is required.'})
 
     if not request.forms.get('message'):
-        return json.dumps("{'error': 'Message is required.'}")
-
-    
+        response.status = 400
+        return json.dumps({'error': 'Message is required.'})
 
     r = requests.post(
             "https://api.mailgun.net/v3/" + config.get('mailgun', 'domain') + "/messages",
@@ -61,7 +91,7 @@ def mailer():
    
     if r.status_code == 200:
         response.status = 200
-        return json.dumps({"data": r.text})
+        return json.dumps({"data": "Message sent."})
     else:
         response.status = 500
         return json.dumps({"error": r.text})
