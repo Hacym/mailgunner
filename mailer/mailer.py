@@ -2,6 +2,7 @@ import os
 import sys
 import ConfigParser
 import json
+from HTMLParser import HTMLParser
 
 import bottle
 from bottle import request, response, hook, route, abort
@@ -53,9 +54,8 @@ def enable_cors():
 def options_handler(path = None):
     return
 
-
-@post('/')
-def mailer():
+@route('/contact', method = 'POST')
+def contact():
     trusted_domains = config.get('domains', 'trusted').split(',')
 
     referer = urlparse(request.headers.get('Referer'))
@@ -88,7 +88,46 @@ def mailer():
                 "text": request.forms.get('message')
             }
     )
-   
+
+    if r.status_code == 200:
+        response.status = 200
+        return json.dumps({"data": "Message sent."})
+    else:
+        response.status = 500
+        return json.dumps({"error": r.text})
+
+
+@route('/subscribe', method = 'POST')
+def subscribe():
+    trusted_domains = config.get('domains', 'trusted').split(',')
+
+    referer = urlparse(request.headers.get('Referer'))
+
+    if referer.netloc not in trusted_domains:
+        response.status = 401
+        return json.dumps({'error': 'Referrer domain not trusted', "referer": referer})
+
+    response.headers['Content-Type'] = 'application/json'
+
+    if not request.forms.get("email_address"):
+        response.status = 400
+        return json.dumps({'error': 'Email address is required'})
+
+    # We're gonna send a confirmation email first to make sure they are signing up their own email
+    with open(config.get('subscriber', 'email_template')) as f:
+        template = f.read()
+
+    r = requests.post(
+            "https://api.mailgun.net/v3/" + config.get('mailgun', 'domain') + "/messages",
+            auth=('api', config.get('mailgun', 'api_key')),
+            data={
+                "from": request.forms.get('name') + " <" + request.forms.get('email') + ">",
+                "to": request.forms.get("email_address"),
+                "subject": config.get('subscriber', 'subject'),
+                "html": template
+            }
+    )
+
     if r.status_code == 200:
         response.status = 200
         return json.dumps({"data": "Message sent."})
